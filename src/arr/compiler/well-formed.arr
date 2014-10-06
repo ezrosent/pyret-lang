@@ -284,7 +284,8 @@ well-formed-visitor = A.default-iter-visitor.{
         wf-error("Imports with shared-gdrive should have two arguments, the name of the file and the file's id, which you can get from the share URL", l)
       end
     else:
-      wf-error("Unsupported import type " + kind + ".  Did you mean my-gdrive or shared-gdrive?", l)
+      true
+      #wf-error("Unsupported import type " + kind + ".  Did you mean my-gdrive or shared-gdrive?", l)
     end
     true
   end,

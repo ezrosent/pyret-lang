@@ -1281,7 +1281,8 @@ fun compile-program(self, l, imports-in, prog, freevars, env):
           else if typ == "shared-gdrive":
             "@shared-gdrive/" + args.first + "/" + args.rest.first
           else:
-            raise("Should have been caught earlier: unhandled import-special-type")
+            # NOTE(joe): under new module loading, this doesn't actually matter
+            CS.dependency(typ, args).key()
           end
       end
     end)
