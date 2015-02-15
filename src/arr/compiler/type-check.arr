@@ -842,6 +842,7 @@ fun letrec-traverse(curr-bindings :: List<A.LetrecBind>, info :: TCInfo) -> Fold
   end
 end
 
+#(indy,eli) tree walking example! :D:D:D
 fun synthesis(e :: A.Expr, info :: TCInfo) -> SynthesisResult:
   cases(A.Expr) e:
     | s-module(l, answer, provides, types, checks) =>

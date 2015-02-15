@@ -5,7 +5,9 @@ provide { generate-constraints   : generate-constraints,
           determine-variance     : determine-variance,
           least-upper-bound      : least-upper-bound,
           greatest-lower-bound   : greatest-lower-bound,
-          meet-fields            : meet-fields } end
+          meet-fields            : meet-fields,
+          Bounds : Bounds, ## CHANGED because we wanted to use the type constraints from elsewhere
+          Equality : Equality} end
 
 provide-types { TypeConstraint  : TypeConstraint,
                 TypeConstraints : TypeConstraints,
