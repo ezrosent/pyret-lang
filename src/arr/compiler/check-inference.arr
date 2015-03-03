@@ -12,7 +12,6 @@ import "compiler/gensym.arr" as G
 
 type Type = TS.Type
 
-
 fun bind(op, fn):
   doc:```added bind for maybe monad to make some of the type constraint stuff
   easier```
@@ -21,6 +20,30 @@ fun bind(op, fn):
     | none => none
   end
 end
+
+#TODO: Add support for environments
+getEnv = lam(): empty;
+
+setEnv = lam(l): l end
+
+
+
+data TGuess:
+  | f-guess(args :: List<Option<Type>>, rt :: Option<Type>)
+  | id-guess(t :: Option<Type>)
+end
+
+data TInfo:
+  | t-info(id :: String, guess :: List<TGuess>)
+end
+
+
+data IdInfo:
+  | id-info(name :: String, ty :: Type)
+end
+
+type ReturnEnv = List<TInfo>
+type TEnv = List<IdInfo>
 
 
 # from type-structs.arr
@@ -40,171 +63,151 @@ end
 # t-string  = t-name(none, A.s-type-global("String"))
 # t-boolean = t-name(none, A.s-type-global("Boolean"))
 
-fun get-info(exp :: A.Expr) -> Option<Type>:
-  doc:```
-      Extracts a type from an expression. Currently, only a subset of types are
-      supported. We return none for unsupported types.
-      ```
-  fun get-name(name :: A.Name) -> Option<Type>:
-    doc:```
-    generate a type-variable for an identifier
-    TODO: get this to work for same id -> same type variable
-    ```
-    cases (A.Name) name:
-      | s-name(l, s) => some(TS.t-var(A.s-name(l, G.make-name(s))))
-      | else => none #raise("[check-inferer] unsupported namespace")
-    end
-  end
-  
-  cases (A.Expr) exp:
-   | s-str(_, s) => some(TS.t-string)
-   | s-bool(_, b) => some(TS.t-boolean)
-   | s-num(_, n) => some(TS.t-number)
-   | s-id(_, id) => get-name(id)
-   | s-app(_, func, args) => f-type = cases (A.Expr) func:
-                                       | s-id(_, id) => get-name(id)
-                                       | else        => none
-                                      end
-                             # this type might be wrong
-                             arg-types = args.foldr(lam(shadow exp, acc):
-                                 cases (Option<Type>) get-info(exp):
-                                   | some(t) => link(t, acc)
-                                   | none    => acc
-                                 end
-                               end, empty)
-
-                             f-type.and-then(lam(t :: TS.Type): (TS.t-arrow(arg-types, t)) end)
-   | else => raise("[check-inferer] trying to infer on something that, like, come on.")
-  end
-end
-
-fun make-cons(lhs :: Option<Type>, rhs :: Option<Type>) -> Option<TC.TypeConstraint>:
-  doc: ```
-       Given the type information from the left and right hand sides of an
-       is check operation, generate a type constraint if possible
-       ```
-  bind(lhs,
-      lam(l-type :: Type): bind(rhs,
-      lam(r-type :: Type): some(TC.Bounds(l-type, r-type)););)
- end
-
-
-
 check-inferer = A.default-map-visitor.{
-  s-check(self, l, name, body, keyword-check):
-    print(name)
+  s-check(self, l, _name, body, keyword-check):
+    print(_name)
     print(body)
 
-    fun get-Op(exp :: A.Expr):
-      cases (A.Expr) exp:
-        | s-app(_, func, args) => cases (A.Expr) func:
-                                    | s-id(_, id) => [list: id]
-                                    | else        => empty
-                                  end
-        | else => empty # raise("[check-inferer] wanted an app")
+    fun extract-name(n :: A.Name) -> Option<String>:
+      doc:```
+          Gets a string representation of a `Name`
+          ```
+      cases (A.Name) n:
+        | s-name(loc, s) => some(s)
+        | else           => none
       end
     end
-    
-    names = cases (A.Expr) body:
-      | s-block(shadow l, stmts) => stmts.map(lam(e):
-          cases (A.Expr) e:
-            | s-check-test(_, op, refin, left, right) => get-Op(left)
-                 .append(cases (Option<A.Expr>) right:
-                          | some(n) => get-Op(n)
-                          | none => empty
-                         end)
-            | else => raise("[check-inferer] things other than s-check-test unsupported")
-          end
-         end).foldr(lam(el, acc): acc.append(el);, empty)
-      | else => raise("[check-inferer] check block not in a block")
-    end
-    print(names)
 
-    A.s-check(l, name, body.visit(self), keyword-check)
-  end,
-  s-check-test(self, l, op, refinement, left, right):
-    
-    when op == A.s-op-is:
-      lhs = get-info(left)
-      #print(lhs)
-      when is-some(right):
-        print(make-cons(lhs, bind(right, lam(e :: A.Expr): get-info(e);)))
+    fun t-infer(env :: TEnv, exp :: A.Expr) -> Option<Type>:
+      doc:```
+          Infers best guess at the type of an expression given `env`
+          ```
+      cases (A.Expr) exp:
+        | s-id(loc, id) => bind(extract-name(id), lam(s :: String):
+          env.lookup(lam(t-i):
+            t-i.id == s
+          end)
+        end)
+        | s-str(loc, _)  => some(TS.t-string)
+        | s-num(loc, _)  => some(TS.t-number)
+        | s-bool(loc, _) => some(TS.t-boolean)
+        | else           => none
       end
     end
-    # this line is for default-map-visitor:
-    A.s-check-test(l, op, self.option(refinement), left.visit(self), self.option(right))
-  end
+    is-s-app = A.is-s-app
+    shadow t-infer = t-infer(getEnv(), _)
+
+    fun get-fun(exp :: A.Expr) -> Option<A.Expr%(is-s-app)>:
+      doc:```
+          This extracts a function from a given expression. Right now we do
+          this in a shallow fashion, but we have it in a helper so we can add
+          extra cases as we see fit.
+          ```
+      cases (A.Expr) exp:
+        | s-app(loc, f, args) => some(exp)
+        | else => none
+      end
+    end
+
+    fun get-fun-name(_fun :: A.Expr) -> Option<String>:
+      doc:```
+          Attempts to find the name of a expression in function-position
+          For now, this assumes that the function name is an s-id or an s-id-letrec,
+          More complicated cases like
+            lam(x):
+              if x:
+                fun-i-want-to-test-1
+              else:
+                fun-i-want-to-test-2
+              end
+            end(test-input)
+          aren't handled right now because halting problem
+          ```
+      cases (A.Expr) _fun:
+        | s-id(loc, name) => extract-name(name)
+        | s-id-letrec(loc, name, _) => extract-name(name)
+        | else => none
+      end
+    end
+
+    fun add-guess(f-name :: String, guess :: TGuess, infos :: ReturnEnv) -> ReturnEnv:
+      doc:```
+          Adds the guess for the type of f-name to infos.
+          ```
+      cases (List<TInfo>) infos:
+        | empty => [list: t-info(f-name, [list: guess])]
+        | link(f, r) => if f.id == f-name:
+          link(t-info(f-name, link(guess, f.guess)), r)
+          else:
+            link(f, add-guess(f-name, guess, r))
+          end
+      end
+    end
+
+    fun infer-binding(app :: A.Expr%(is-s-app), rt :: Option<Type>, rest) -> ReturnEnv:
+      doc:```
+          Given a function application, adds a guess at the function's type to the value
+          returned by `rest`
+          ```
+      cases (Option<String>) get-fun-name(app._fun):
+        | none => rest()
+        | some(n) => print("infer-binding:")
+            print(n)
+            args = app.args.map(t-infer)
+            add-guess(n, f-guess(args, rt), rest())
+      end
+    end
+
+    fun t-bind(elist :: List<A.Expr>) -> ReturnEnv:
+      cases (List<A.Expr>) elist:
+        | empty => empty
+        | link(f, r) => recur = lam(): t-bind(r) end
+         cases (A.Expr) f:
+           | s-check-test(loc, op, refinement, left, right) => #TODO: only assuming op-is
+             l-fun = print(get-fun(left))
+             r-fun = print(bind(right, lam(shadow right): get-fun(right);))
+             ask:
+               | is-none(l-fun) and is-none(r-fun) then: recur()
+               | is-none(l-fun) and is-some(r-fun) then: infer-binding(r-fun.value, t-infer(left), recur)
+               | is-some(l-fun) and is-none(r-fun) then: infer-binding(l-fun.value, print(bind(right,
+                     lam(shadow right): t-infer(right);)), recur)
+               | is-some(l-fun) and is-some(r-fun) then: l-funs = infer-binding(l-fun.value(), none, recur)
+                                                         infer-binding(r-fun.value(), none, lam(): l-funs;)
+               | otherwise: raise("[check-infer/t-bind] impossible state")
+             end
+
+           # TODO: do we care about annotation on `name`
+           | s-let(loc, binding, value, _) =>
+             cases (Option) t-infer(getEnv(), value):
+               | none => recur()
+               | some(n) =>
+                   setEnv(link(id-info(binding.id, n), getEnv()))
+                   recur()
+             end
+          | else => recur()
+         end
+      end
+    end
+
+    print(t-bind(body.stmts))
+    A.s-check(l, _name, body.visit(self), keyword-check)
+  end,
 }
 
-# check-stmts-visitor-new = A.default-map-visitor.{
-#   s-check-test(self, l, op, refinement, left, right):
-#     term = A.s-check-test(l, op, refinement, left, right)
-#     fun check-op(fieldname):
-#       A.s-app(l, A.s-dot(l, U.checkers(l), fieldname),
-#         [list: ast-pretty(term), left, right.value, ast-srcloc(l)])
-#     end
-#     fun check-refinement(shadow refinement, fieldname):
-#       A.s-app(l, A.s-dot(l, U.checkers(l), fieldname),
-#         [list: ast-pretty(term), refinement, left, right.value, ast-srcloc(l)])
-#     end
-#     cases(A.CheckOp) op:
-#       | s-op-is            =>
-#         cases(Option) refinement:
-#           | none                    => check-op("check-is")
-#           | some(shadow refinement) => check-refinement(refinement, "check-is-refinement")
-#         end
-#       | s-op-is-not        =>
-#         cases(Option) refinement:
-#           | none                    => check-op("check-is-not")
-#           | some(shadow refinement) => check-refinement(refinement, "check-is-not-refinement")
-#         end
-#       | s-op-is-op(opname)    =>
-#         check-refinement(A.s-id(l, A.s-name(l, A.get-op-fun-name(opname))), "check-is-refinement")
-#       | s-op-is-not-op(opname) =>
-#         check-refinement(A.s-id(l, A.s-name(l, A.get-op-fun-name(opname))), "check-is-not-refinement")
-#       | s-op-satisfies        =>
-#         check-op("check-satisfies")
-#       | s-op-satisfies-not    =>
-#         check-op("check-satisfies-not")
-#       | s-op-raises           =>
-#         A.s-app(l, A.s-dot(l, U.checkers(l), "check-raises-str"),
-#           [list: ast-pretty(term), ast-lam(left), right.value, ast-srcloc(l)])
-#       | s-op-raises-not       =>
-#         A.s-app(l, A.s-dot(l, U.checkers(l), "check-raises-not"),
-#           [list: ast-pretty(term), ast-lam(left), ast-srcloc(l)])
-#       | s-op-raises-other     =>
-#         A.s-app(l, A.s-dot(l, U.checkers(l), "check-raises-other-str"),
-#           [list: ast-pretty(term), ast-lam(left), right.value, ast-srcloc(l)])
-#       | s-op-raises-satisfies =>
-#         A.s-app(l, A.s-dot(l, U.checkers(l), "check-raises-satisfies"),
-#           [list: ast-pretty(term), ast-lam(left), right.value, ast-srcloc(l)])
-#       | s-op-raises-violates  =>
-#         A.s-app(l, A.s-dot(l, U.checkers(l), "check-raises-violates"),
-#           [list: ast-pretty(term), ast-lam(left), right.value, ast-srcloc(l)])
-#       | else => raise("Check test operator " + op.label() + " not yet implemented at " + torepr(l))
-#     end
-#   end,
-#   s-check(self, l, name, body, keyword-check):
-#     # collapse check blocks into top layer
-#     print("woah!")
-#     body.visit(self)
-#   end
-# }
 
 check:
   d = A.dummy-loc
   le-program = ```
 fun add1(x):
   x + 1
-where:
-  add1(2) is 3
 end
 
 check "Hi there!":
-  add1(5) is 6
-  add2(4) is 6
+  add1(6) is 7
+  add1(4) is 5
+  add2(6) is 8
 end
   ```
-  PP.surface-parse(le-program, "test").visit(check-inferer)#.visit(A.dummy-loc-visitor)
-  is A.s-id(d, A.s-name(d, "x"))
+  PP.surface-parse(le-program, "test").visit(check-inferer)
+  satisfies (lam(x): true;)
 end
