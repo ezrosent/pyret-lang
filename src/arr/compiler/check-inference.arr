@@ -168,8 +168,8 @@ check-inferer = lam():
                | is-none(l-fun) and is-some(r-fun) then: infer-binding(r-fun.value, t-infer(left), recur)
                | is-some(l-fun) and is-none(r-fun) then: infer-binding(l-fun.value, bind(right,
                      lam(shadow right): t-infer(right);), recur)
-               | is-some(l-fun) and is-some(r-fun) then: l-funs = infer-binding(l-fun.value(), none, recur)
-                                                         infer-binding(r-fun.value(), none, lam(): l-funs;)
+               | is-some(l-fun) and is-some(r-fun) then: l-funs = infer-binding(l-fun.value, none, recur)
+                                                         infer-binding(r-fun.value, none, lam(): l-funs;)
                | otherwise: raise("[check-infer/t-bind] impossible state")
              end
 
