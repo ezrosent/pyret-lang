@@ -21,12 +21,7 @@ fun bind(op, fn):
   end
 end
 
-#TODO: Add support for environments
-getEnv = lam(): empty;
-
-setEnv = lam(l): l end
-
-
+#TODO: Add inference for identifiers
 
 data TGuess:
   | f-guess(args :: List<Option<Type>>, rt :: Option<Type>)
@@ -63,7 +58,9 @@ type TEnv = List<IdInfo>
 # t-string  = t-name(none, A.s-type-global("String"))
 # t-boolean = t-name(none, A.s-type-global("Boolean"))
 
-check-inferer = A.default-map-visitor.{
+check-inferer = lam():
+  var _env = empty
+  A.default-map-visitor.{
   s-check(self, l, _name, body, keyword-check):
     print(_name)
     print(body)
@@ -84,9 +81,9 @@ check-inferer = A.default-map-visitor.{
           ```
       cases (A.Expr) exp:
         | s-id(loc, id) => bind(extract-name(id), lam(s :: String):
-          env.lookup(lam(t-i):
-            t-i.id == s
-          end)
+          bind(env.find(lam(t-i):
+            t-i.name == s
+          end), lam(info): some(info.ty);)
         end)
         | s-str(loc, _)  => some(TS.t-string)
         | s-num(loc, _)  => some(TS.t-number)
@@ -95,7 +92,7 @@ check-inferer = A.default-map-visitor.{
       end
     end
     is-s-app = A.is-s-app
-    shadow t-infer = t-infer(getEnv(), _)
+    shadow t-infer = t-infer(self.getEnv(), _)
 
     fun get-fun(exp :: A.Expr) -> Option<A.Expr%(is-s-app)>:
       doc:```
@@ -144,7 +141,7 @@ check-inferer = A.default-map-visitor.{
       end
     end
 
-    fun infer-binding(app :: A.Expr%(is-s-app), rt :: Option<Type>, rest) -> ReturnEnv:
+    fun infer-binding(app :: A.Expr%(is-s-app), rt :: Option<Type>, rest :: (-> ReturnEnv)) -> ReturnEnv:
       doc:```
           Given a function application, adds a guess at the function's type to the value
           returned by `rest`
@@ -178,10 +175,10 @@ check-inferer = A.default-map-visitor.{
 
            # TODO: do we care about annotation on `name`
            | s-let(loc, binding, value, _) =>
-             cases (Option) t-infer(getEnv(), value):
+             cases (Option) t-infer(value):
                | none => recur()
                | some(n) =>
-                   setEnv(link(id-info(binding.id, n), getEnv()))
+                   self.setEnv(link(id-info(extract-name(binding.id).value, n), self.getEnv()))
                    recur()
              end
           | else => recur()
@@ -192,7 +189,14 @@ check-inferer = A.default-map-visitor.{
     print(t-bind(body.stmts))
     A.s-check(l, _name, body.visit(self), keyword-check)
   end,
+  setEnv(self, new-env :: TEnv):
+    _env := new-env
+  end,
+  getEnv(self):
+    _env
+  end
 }
+end()
 
 
 check:
@@ -203,8 +207,9 @@ fun add1(x):
 end
 
 check "Hi there!":
-  add1(6) is 7
-  add1(4) is 5
+  a = 7
+  add1(6) is a
+  add1(a) is 5
   add2(6) is 8
 end
   ```
