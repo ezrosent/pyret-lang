@@ -153,6 +153,9 @@ check-inferer = lam():
     end
 
     fun t-bind(elist :: List<A.Expr>) -> ReturnEnv:
+      doc:```
+          Generates a list of guesses (potential types) for functions in the check block
+          ```
       cases (List<A.Expr>) elist:
         | empty => empty
         | link(f, r) => recur = lam(): t-bind(r) end
