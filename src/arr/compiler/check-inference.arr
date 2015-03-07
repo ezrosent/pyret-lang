@@ -132,11 +132,18 @@ end
 # t-string  = t-name(none, A.s-type-global("String"))
 # t-boolean = t-name(none, A.s-type-global("Boolean"))
 
+
 check-inferer = lam():
   var _env = empty
+  var _retenv = empty
   A.default-map-visitor.{
+  ret-env(self):
+    _retenv
+  end,
+  set-retenv(self, re):
+    _retenv := re
+  end,
   s-check(self, l, _name, body, keyword-check):
-    print(_name)
     shadow t-infer = t-infer(self.getEnv(), _)
 
     fun infer-binding(app :: A.Expr%(is-s-app), rt :: Option<Type>, rest :: (-> ReturnEnv)) -> ReturnEnv:
@@ -185,8 +192,7 @@ check-inferer = lam():
          end
       end
     end
-
-    print(t-bind(body.stmts))
+    self.set-retenv(t-bind(body.stmts) + self.ret-env())
     A.s-check(l, _name, body.visit(self), keyword-check)
   end,
   setEnv(self, new-env :: TEnv):
@@ -196,12 +202,39 @@ check-inferer = lam():
     _env
   end
 }
-end()
+end
 
+fun check-infer(ast :: A.Program) -> ReturnEnv:
+  doc:```
+      Performs type inference of the ast's checks, and returns the types inferred
+      in the form of a ReturnEnv.
+      ```
+  checker = check-inferer()
+  ast.visit(checker)
+  checker.ret-env()
+end
+
+fun has-type(re :: ReturnEnv, id :: String, guess :: TGuess) -> Boolean:
+  cases (Option<TInfo>) re.find(lam(t-i): t-i.id == id;):
+    | some(info) => is-some(info.guess.find(lam(g): g == guess;))
+    | none => false
+  end
+end
 
 check:
-  d = A.dummy-loc
-  le-program = ```
+  one-check = ```
+  fun add1(x):
+    x + 1
+  end
+
+  check "check block 1":
+    add1(3) is 5
+  end
+  ```
+  one-check-res = check-infer(PP.surface-parse(one-check, "test"))
+  one-check-res satisfies has-type(_, "add1", f-guess([list: some(TS.t-number)], some(TS.t-number)))
+
+  multiple-functions-ids = ```
 fun add1(x):
   x + 1
 end
@@ -214,11 +247,17 @@ check "Hi there!":
   s = "hithere"
   add1(6) is a
   add1(a) is 5
-  add2(s) is "hithere"
+  add2(s, 44) is "hithere"
   "hithere" is id(s)
   n(true) is false
+  p("hello!") is q(true)
 end
   ```
-  PP.surface-parse(le-program, "test").visit(check-inferer)
-  satisfies (lam(x): true;)
+  multiple-funs-res = check-infer(PP.surface-parse(multiple-functions-ids, "test"))
+  multiple-funs-res satisfies has-type(_, "add1", f-guess([list: some(TS.t-number)], some(TS.t-number)))
+  multiple-funs-res satisfies has-type(_, "id", f-guess([list: some(TS.t-string)], some(TS.t-string)))
+  multiple-funs-res satisfies has-type(_, "n", f-guess([list: some(TS.t-boolean)], some(TS.t-boolean)))
+  multiple-funs-res satisfies has-type(_, "add2", f-guess([list: some(TS.t-string), some(TS.t-number)], some(TS.t-string)))
+  multiple-funs-res satisfies has-type(_, "p", f-guess([list: some(TS.t-string)], none))
+  multiple-funs-res satisfies has-type(_, "q", f-guess([list: some(TS.t-boolean)], none))
 end
