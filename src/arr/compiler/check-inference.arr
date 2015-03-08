@@ -9,6 +9,7 @@ import option as O
 import "compiler/type-constraints.arr" as TC
 import "compiler/type-structs.arr" as TS
 import "compiler/gensym.arr" as G
+import string-dict as SD
 
 type Type = TS.Type
 
@@ -22,6 +23,7 @@ fun bind(op, fn):
 end
 
 #TODO: Add inference for identifiers
+#TODO: turn ReturnEnv into mutablestringdict
 
 data TGuess:
   | f-guess(args :: List<Option<Type>>, rt :: Option<Type>)
@@ -37,6 +39,12 @@ data IdInfo:
   | id-info(name :: String, ty :: Type)
 end
 
+is-t-record = TS.is-t-record
+
+
+#variant data constructor name -> type of data
+type VariantEnv = SD.MutableStringDict<Type%(is-t-record)>
+
 type ReturnEnv = List<TInfo>
 type TEnv = List<IdInfo>
 
@@ -50,51 +58,8 @@ fun extract-name(n :: A.Name) -> Option<String>:
   end
 end
 
-fun t-infer(env :: TEnv, exp :: A.Expr) -> Option<Type>:
-  doc:```
-      Infers best guess at the type of an expression given `env`
-      ```
-  cases (A.Expr) exp:
-    | s-id(loc, id) => bind(extract-name(id), lam(s :: String):
-      bind(env.find(lam(t-i):
-        t-i.name == s
-      end), lam(info): some(info.ty);)
-    end)
-    | s-str(loc, _)  => some(TS.t-string)
-    | s-num(loc, _)  => some(TS.t-number)
-    | s-bool(loc, _) => some(TS.t-boolean)
-    | else           => none
-  end
-end
+
 is-s-app = A.is-s-app
-
-fun add-guess(f-name :: String, guess :: TGuess, infos :: ReturnEnv) -> ReturnEnv:
-  doc:```
-      Adds the guess for the type of f-name to infos.
-      ```
-  cases (List<TInfo>) infos:
-    | empty => [list: t-info(f-name, [list: guess])]
-    | link(f, r) => if f.id == f-name:
-      link(t-info(f-name, link(guess, f.guess)), r)
-      else:
-        link(f, add-guess(f-name, guess, r))
-      end
-  end
-end
-
-
-fun get-fun(exp :: A.Expr) -> Option<A.Expr%(is-s-app)>:
-  doc:```
-      This extracts a function from a given expression. Right now we do
-      this in a shallow fashion, but we have it in a helper so we can add
-      extra cases as we see fit.
-      ```
-  cases (A.Expr) exp:
-    | s-app(loc, f, args) => some(exp)
-    | else => none
-  end
-end
-
 fun get-fun-name(_fun :: A.Expr) -> Option<String>:
   doc:```
       Attempts to find the name of a expression in function-position
@@ -115,6 +80,21 @@ fun get-fun-name(_fun :: A.Expr) -> Option<String>:
     | else => none
   end
 end
+
+fun add-guess(f-name :: String, guess :: TGuess, infos :: ReturnEnv) -> ReturnEnv:
+  doc:```
+      Adds the guess for the type of f-name to infos.
+      ```
+  cases (List<TInfo>) infos:
+    | empty => [list: t-info(f-name, [list: guess])]
+    | link(f, r) => if f.id == f-name:
+      link(t-info(f-name, link(guess, f.guess)), r)
+      else:
+        link(f, add-guess(f-name, guess, r))
+      end
+  end
+end
+
 # from type-structs.arr
 # data Type:
 #   | t-name(module-name :: Option<String>, id :: Name)
@@ -133,16 +113,56 @@ end
 # t-boolean = t-name(none, A.s-type-global("Boolean"))
 
 
-check-inferer = lam():
+check-inferer = lam(sd :: VariantEnv):
   var _env = empty
   var _retenv = empty
+
+
+  fun t-infer(env :: TEnv, exp :: A.Expr) -> Option<Type>:
+    doc:```
+        Infers best guess at the type of an expression given `env`
+        ```
+    cases (A.Expr) exp:
+      | s-id(loc, id) => bind(extract-name(id), lam(s :: String):
+        bind(env.find(lam(t-i):
+          t-i.name == s
+        end), lam(info): some(info.ty);)
+      end)
+      | s-str(loc, _)  => some(TS.t-string)
+      | s-num(loc, _)  => some(TS.t-number)
+      | s-bool(loc, _) => some(TS.t-boolean)
+      | s-app(loc, f, args) => bind(get-fun-name(f), sd.get-now(_))
+      | else           => none
+    end
+  end
+
+  fun get-fun(exp :: A.Expr) -> Option<A.Expr%(is-s-app)>:
+    doc:```
+        This extracts a function from a given expression. Right now we do
+        this in a shallow fashion, but we have it in a helper so we can add
+        extra cases as we see fit.
+        ```
+    cases (A.Expr) exp:
+      | s-app(loc, f, args) =>  cases (Option<String>) get-fun-name(f):
+                                  | none => none
+                                  | some(n) => cases (Option<Type>) sd.get-now(n):
+                                                 | none => some(exp)
+                                                 | some(_) => none
+                                               end
+                                end
+      | else => none
+    end
+  end
+
+
   A.default-map-visitor.{
   ret-env(self):
     _retenv
   end,
   set-retenv(self, re):
     _retenv := re
-  end,
+
+    end,
   s-check(self, l, _name, body, keyword-check):
     shadow t-infer = t-infer(self.getEnv(), _)
 
@@ -209,7 +229,8 @@ fun check-infer(ast :: A.Program) -> ReturnEnv:
       Performs type inference of the ast's checks, and returns the types inferred
       in the form of a ReturnEnv.
       ```
-  checker = check-inferer()
+  dummy-data-dict = [SD.mutable-string-dict:]
+  checker = check-inferer(dummy-data-dict)
   ast.visit(checker)
   checker.ret-env()
 end
