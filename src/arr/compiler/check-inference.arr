@@ -270,7 +270,7 @@ fun check-infer(ast :: A.Program) -> ReturnEnv:
       Performs type inference of the ast's checks, and returns the types inferred
       in the form of a ReturnEnv.
       ```
-  variant-dict = datatype-infer(ast)
+  variant-dict = datatype-infer(RS.desugar-scope(ast, C.minimal-builtins))
   checker = check-inferer(variant-dict)
   ast.visit(checker)
   checker.ret-env()
@@ -338,12 +338,12 @@ end
 
 
 check "ohhh goodness":
+  baz = foo
   foobar(foo) is bar(none, none)
-  foobar(bar(none, none)) is foo
+  foobar(bar(none, none)) is baz
 end
   ```
   prog = PP.surface-parse(datatype-program, "test")
   # desugar data exprs
-  datatype-res = check-infer(RS.desugar-scope(prog, C.minimal-builtins))
-  print(datatype-res)
+  print(check-infer(prog))
 end
