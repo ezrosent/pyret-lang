@@ -10,6 +10,8 @@ import "compiler/type-check.arr" as TC
 import "compiler/type-structs.arr" as TS
 import "compiler/type-check-structs.arr" as TCS
 import "compiler/gensym.arr" as G
+import "compiler/compile-structs.arr" as C
+import "compiler/resolve-scope.arr" as RS
 import string-dict as SD
 
 type Type = TS.Type
@@ -44,7 +46,7 @@ is-t-record = TS.is-t-record
 
 
 #variant data constructor name -> type of data
-type VariantEnv = SD.MutableStringDict<Type%(is-t-record)>
+type VariantEnv = SD.MutableStringDict<Type>
 
 type ReturnEnv = List<TInfo>
 type TEnv = List<IdInfo>
@@ -128,8 +130,10 @@ fun datatype-infer(ast :: A.Program) -> VariantEnv:
         shared-members :: List<A.Member>,
         _check :: Option<A.Expr>
       ):
-      typ = TC.synthesis-datatype(loc, name, namet, params,
-          mixins, variants, shared-members, _check, info).typ
+#print(variants)
+#      typ = TC.synthesis-datatype(loc, name, namet, params,
+#          mixins, variants, shared-members, _check, info).typ
+      typ = TS.t-var(namet)
       variants.map(lam(v): ret.set-now(v.name, typ);)
       A.s-data-expr(
           loc,
@@ -144,6 +148,7 @@ fun datatype-infer(ast :: A.Program) -> VariantEnv:
     end
 
   })
+  print(ret.keys-now().to-list())
   ret
 
 end
@@ -151,18 +156,19 @@ end
 check-inferer = lam(sd :: VariantEnv):
   var _env = empty
   var _retenv = empty
-
-
   fun t-infer(env :: TEnv, exp :: A.Expr) -> Option<Type>:
     doc:```
         Infers best guess at the type of an expression given `env`
         ```
     cases (A.Expr) exp:
-      | s-id(loc, id) => bind(extract-name(id), lam(s :: String):
-        bind(env.find(lam(t-i):
-          t-i.name == s
-        end), lam(info): some(info.ty);)
-      end)
+      | s-id(loc, id) => cases (Option<Type>) bind(extract-name(id), sd.get-now(_)):
+        | none => bind(extract-name(id), lam(s :: String):
+                    bind(env.find(lam(t-i):
+                      t-i.name == s
+                    end), lam(info): some(info.ty);)
+                  end)
+        | some(n) => some(n)
+       end
       | s-str(loc, _)  => some(TS.t-string)
       | s-num(loc, _)  => some(TS.t-number)
       | s-bool(loc, _) => some(TS.t-boolean)
@@ -316,4 +322,28 @@ end
   multiple-funs-res satisfies has-type(_, "add2", f-guess([list: some(TS.t-string), some(TS.t-number)], some(TS.t-string)))
   multiple-funs-res satisfies has-type(_, "p", f-guess([list: some(TS.t-string)], none))
   multiple-funs-res satisfies has-type(_, "q", f-guess([list: some(TS.t-boolean)], none))
+
+  datatype-program = ```
+data Foo:
+  | foo
+  | bar(x,y)
+end
+
+fun foobar(f):
+  cases (Foo) f:
+    | foo => bar(none, none)
+    | bar(_,_) => foo
+   end
+end
+
+
+check "ohhh goodness":
+  foobar(foo) is bar(none, none)
+  foobar(bar(none, none)) is foo
+end
+  ```
+  prog = PP.surface-parse(datatype-program, "test")
+  # desugar data exprs
+  datatype-res = check-infer(RS.desugar-scope(prog, C.minimal-builtins))
+  print(datatype-res)
 end
