@@ -6,8 +6,9 @@ provide-types *
 import ast as A
 import parse-pyret as PP
 import option as O
-import "compiler/type-constraints.arr" as TC
+import "compiler/type-check.arr" as TC
 import "compiler/type-structs.arr" as TS
+import "compiler/type-check-structs.arr" as TCS
 import "compiler/gensym.arr" as G
 import string-dict as SD
 
@@ -112,6 +113,40 @@ end
 # t-string  = t-name(none, A.s-type-global("String"))
 # t-boolean = t-name(none, A.s-type-global("Boolean"))
 
+fun datatype-infer(ast :: A.Program) -> VariantEnv:
+  info = TCS.empty-tc-info("data-scrape")
+  ret = [SD.mutable-string-dict:]
+  ast.visit(A.default-map-visitor.{
+    s-data-expr(
+        self,
+        loc :: A.Loc,
+        name :: String,
+        namet :: A.Name,
+        params :: List<A.Name>, # type params
+        mixins :: List<A.Expr>,
+        variants :: List<A.Variant>,
+        shared-members :: List<A.Member>,
+        _check :: Option<A.Expr>
+      ):
+      typ = TC.synthesis-datatype(loc, name, namet, params,
+          mixins, variants, shared-members, _check, info).typ
+      variants.map(lam(v): ret.set-now(v.name, typ);)
+      A.s-data-expr(
+          loc,
+          name,
+          namet.visit(self),
+          params.map(_.visit(self)),
+          mixins.map(_.visit(self)),
+          variants.map(_.visit(self)),
+          shared-members.map(_.visit(self)),
+          self.option(_check)
+        )
+    end
+
+  })
+  ret
+
+end
 
 check-inferer = lam(sd :: VariantEnv):
   var _env = empty
@@ -229,8 +264,8 @@ fun check-infer(ast :: A.Program) -> ReturnEnv:
       Performs type inference of the ast's checks, and returns the types inferred
       in the form of a ReturnEnv.
       ```
-  dummy-data-dict = [SD.mutable-string-dict:]
-  checker = check-inferer(dummy-data-dict)
+  variant-dict = datatype-infer(ast)
+  checker = check-inferer(variant-dict)
   ast.visit(checker)
   checker.ret-env()
 end
