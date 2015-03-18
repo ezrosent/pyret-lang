@@ -26,6 +26,18 @@ t-module                  = TS.t-module
 type Bindings              = SD.StringDict<TS.Type>
 empty-bindings :: Bindings = SD.make-string-dict()
 
+data InferredTGuess:
+  | inf-f-guess(args :: List<Option<InferredType>>, rt :: Option<InferredType>)
+  | inf-id-guess(t :: Option<InferredType>)
+end
+
+data InferredType:
+  | dat(ty :: TS.Type) # special, need extra informatikon to resolve
+  | typp(ty :: TS.Type)
+end
+
+type TypeMap = SD.MutableStringDict<InferredTGuess>
+
 data TCInfo:
   | tc-info(typs       :: SD.MutableStringDict<TS.Type>,
             aliases    :: SD.MutableStringDict<TS.Type>,
@@ -35,6 +47,7 @@ data TCInfo:
             mod-names  :: SD.MutableStringDict<String>,
             binds      :: Bindings,
             ref modul  :: TS.ModuleType,
+            inferred   :: TypeMap,
             errors     :: { insert :: (C.CompileError -> List<C.CompileError>),
                             get    :: (-> List<C.CompileError>)})
 sharing:
@@ -46,6 +59,7 @@ sharing:
       dict-to-string(self.branders) + ", " +
       dict-to-string(self.modules) + ", " +
       tostring(self.binds) + ", " +
+      dict-to-string(self.inferred) + ", " +
       tostring(self.errors.get()) + ")"
   end
 end
@@ -63,12 +77,12 @@ fun empty-tc-info(mod-name :: String) -> TCInfo:
       end
     }
   end
-  tc-info(TD.make-default-typs(), SD.make-mutable-string-dict(), TD.make-default-data-exprs(), SD.make-mutable-string-dict(), TD.make-default-modules(), SD.make-mutable-string-dict(), empty-bindings, curr-module, errors)
+  tc-info(TD.make-default-typs(), SD.make-mutable-string-dict(), TD.make-default-data-exprs(), SD.make-mutable-string-dict(), TD.make-default-modules(), SD.make-mutable-string-dict(), empty-bindings, curr-module, SD.make-mutable-string-dict(), errors)
 end
 
 fun add-binding-string(id :: String, bound :: Type, info :: TCInfo) -> TCInfo:
   new-binds = info.binds.set(id, bound)
-  tc-info(info.typs, info.aliases, info.data-exprs, info.branders, info.modules, info.mod-names, new-binds, info!modul, info.errors)
+  tc-info(info.typs, info.aliases, info.data-exprs, info.branders, info.modules, info.mod-names, new-binds, info!modul, SD.make-mutable-string-dict(), info.errors)
 end
 
 fun add-binding(id :: Name, bound :: Type, info :: TCInfo) -> TCInfo:
