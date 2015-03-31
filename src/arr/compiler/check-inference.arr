@@ -95,7 +95,7 @@ fun get-fun-name(_fun :: A.Expr) -> Option<String>:
     | s-id-letrec(loc, name, _) => extract-name(name)
     | else => none
   end
-end>
+end
 
 
 fun add-guess(f-name :: String, guess :: TGuess, infos :: ReturnEnv) -> ReturnEnv:
@@ -313,8 +313,7 @@ fun process(re :: ReturnEnv) -> TypeMap:
   fun convert-guess(tg :: TGuess) -> InferredTGuess:
     cases (TGuess) tg:
       | f-guess(args, rt) => inf-f-guess(args.map(_.and-then(convert-type)), rt.and-then(convert-type))
-      | id-guess(t) => inf-id-guess(t.and-then(convert-type)>
-)
+      | id-guess(t) => inf-id-guess(t.and-then(convert-type))
     end
   end
 
@@ -468,11 +467,11 @@ check "ohhh goodness":
   foobar("hi") is foo
 end
   ```
-  prog2 = check-infer(PP.surface-parse(datatype-program2, "test"))
-  # desugar data exprs
-  dict3 = process(prog2)
-  dict3.keys-now().to-list().map(lam(id):
-      print(id + "->" )
-      print(dict3.get-now(id))
-    end)
+prog2 = check-infer(PP.surface-parse(datatype-program2, "test"))
+# desugar data exprs
+dict3 = process(prog2)
+dict3.keys-now().to-list().map(lam(id):
+    print(id + "->" )
+    print(dict3.get-now(id))
+  end)
 end
