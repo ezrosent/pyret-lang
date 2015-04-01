@@ -10,6 +10,7 @@ import "compiler/type-structs.arr" as TS
 import "compiler/type-check-structs.arr" as TCS
 import "compiler/type-constraints.arr" as TC
 import "compiler/list-aux.arr" as LA
+import "compiler/check-inference.arr" as CI
 
 type Name                 = A.Name
 
@@ -1047,16 +1048,72 @@ fun synthesis(e :: A.Expr, info :: TCInfo) -> SynthesisResult:
 
 end
 
+#data InferredTGuess:
+#  | inf-f-guess(args :: List<Option<InferredType>>, rt :: Option<InferredType>)
+#  | inf-id-guess(t :: Option<InferredType>)
+#end
+
+#data InferredType:
+#  | dat(ty :: TS.Type) # special, need extra informatikon to resolve
+#  | typp(ty :: TS.Type)
+#end
+
+fun extract-type(ig :: Option<TCS.InferredType>, info :: TCInfo) -> Option<Type>:
+  CI.bind(ig, lam(infer):
+      cases (TCS.InferredType) infer:
+        | dat(ty)  => if TS.is-t-var(ty):
+          info.branders.get-now(ty.id.key())
+        else:
+          raise("[check-infer] datatypes are only supposed to be type variables!")
+        end
+        | typp(ty) => some(ty)
+      end
+  end)
+end
+
 fun synthesis-binding(binding :: A.Bind, value :: A.Expr, recreate :: (A.Bind, A.Expr -> A.LetBind), wrap :: (Type -> Type), info :: TCInfo) -> SynthesisResult:
   fun process-value(expr, typ-loc, typ):
     wrapped = wrap(typ)
     info.typs.set-now(binding.id.key(), wrapped)
     synthesis-binding-result(recreate(binding, expr), wrapped)
   end
+
+  never-give-up-never-surrender = lam(o, f):
+    cases (Option) o:
+      | some(t) => f(t)
+      | none => synthesis(value, info)
+    end
+  end
+
+  nguns = never-give-up-never-surrender
   for synth-bind(maybe-typ from to-type(binding.ann, info)):
     cases(Option<Type>) maybe-typ:
-      | none =>
-        synthesis(value, info)
+      | none => cases (A.Name) binding.id:
+                  | s-name(loc, id) =>
+                      nguns(info.inferred.get-now(id), lam(guess):
+                           cases (TCS.InferredTGuess) guess:
+                             | inf-id-guess(t) => nguns(extract-type(t, info), lam(shadow t):
+                                                    checking(value, binding.l, t, info)
+                                                       .synth-bind(synthesis-result(_, binding.l, t))
+                                                  end)
+                             | inf-f-guess(args, rt) =>
+                               nguns(args.foldr(lam(x, acc):
+                                   CI.bind(acc, lam(ac):
+                                     CI.bind(extract-type(x, info), lam(ty):
+                                       some(link(x, acc))
+                                     end)
+                                   end)
+                                 end, some(empty)), lam(t-list):
+                                  nguns(extract-type(rt, info), lam(shadow rt):
+                                      t = TS.t-arrow(t-list, rt)
+                                      checking(value, binding.l, t, info)
+                                        .synth-bind(synthesis-result(_, binding.l, t))
+                                  end)
+                               end)
+                           end
+                      end)
+                  | else => synthesis(value, info)
+                end
       | some(t) =>
         checking(value, binding.l, t, info)
           .synth-bind(synthesis-result(_, binding.l, t))
@@ -1498,6 +1555,12 @@ fun type-check(program :: A.Program, compile-env :: C.CompileEnvironment) -> C.C
   cases(A.Program) program:
     | s-program(l, _provide, provided-types, imports, body) =>
       info = TCS.empty-tc-info("default")
+      shadow info = cases (TCS.TCInfo) info:
+        | tc-info(typs, aliases, data-exprs,
+            branders, modules, mod-names, binds, modul, _, errors) =>
+           tc-info(typs, aliases, data-exprs, branders, modules,
+               mod-names, binds, modul, CI.infer-types(program), errors)
+      end
       for each(_import from imports):
         cases(A.Import) _import:
           | s-import(_, file, name) =>

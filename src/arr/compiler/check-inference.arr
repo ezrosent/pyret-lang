@@ -6,7 +6,7 @@ provide-types *
 import ast as A
 import parse-pyret as PP
 import option as O
-import "compiler/type-check.arr" as TC
+#import "compiler/type-check.arr" as TC
 import "compiler/type-structs.arr" as TS
 import "compiler/type-check-structs.arr" as TCS
 import "compiler/gensym.arr" as G
@@ -26,7 +26,11 @@ fun bind(op, fn):
 end
 
 #TODO: Add inference for identifiers
-#TODO: turn ReturnEnv into mutablestringdict
+#TODO: turn ReturnEnv into mutablestringdict (less of an issue now)
+#TODO: get type-checker hooked in
+#TODO: handle things besides 'is'
+#TODO: traverse desugared AST
+#TODO: add tests in the tests area
 
 
 data TGuess:
@@ -360,7 +364,12 @@ fun process(re :: ReturnEnv) -> TypeMap:
         res.set-now(id, hit-list.foldr(lam(f, acc): f(acc);, final-guess))
       end
     end)
+
   res
+end
+
+fun infer-types(program :: A.Program) -> TypeMap:
+   process(check-infer(program))
 end
 
 fun has-type(re :: ReturnEnv, id :: String, guess :: TGuess) -> Boolean:
@@ -371,6 +380,7 @@ fun has-type(re :: ReturnEnv, id :: String, guess :: TGuess) -> Boolean:
 end
 
 check:
+
   one-check = ```
   fun add1(x):
     x + 1
@@ -382,6 +392,7 @@ check:
   ```
   one-check-res = check-infer(PP.surface-parse(one-check, "test"))
   one-check-res satisfies has-type(_, "add1", f-guess([list: some(TS.t-number)], some(TS.t-number)))
+
 
   multiple-functions-ids = ```
 fun add1(x):
@@ -402,6 +413,7 @@ check "Hi there!":
   p("hello!") is q(true)
 end
   ```
+
   multiple-funs-res = check-infer(PP.surface-parse(multiple-functions-ids, "test"))
   multiple-funs-res satisfies has-type(_, "add1", f-guess([list: some(TS.t-number)], some(TS.t-number)))
   multiple-funs-res satisfies has-type(_, "id", f-guess([list: some(TS.t-string)], some(TS.t-string)))
@@ -414,6 +426,7 @@ end
       print(id + "->" )
       print(dict2.get-now(id))
     end)
+
 
   datatype-program = ```
 data Foo:
@@ -435,6 +448,7 @@ check "ohhh goodness":
   foobar(bar(none, none)) is baz
 end
   ```
+
   prog = PP.surface-parse(datatype-program, "test")
   # desugar data exprs
   dict = process(check-infer(prog))
