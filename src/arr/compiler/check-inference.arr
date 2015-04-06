@@ -12,6 +12,7 @@ import "compiler/type-check-structs.arr" as TCS
 import "compiler/gensym.arr" as G
 import "compiler/compile-structs.arr" as C
 import "compiler/resolve-scope.arr" as RS
+import "compiler/desugar.arr" as D
 import string-dict as SD
 
 type Type = TS.Type
@@ -29,8 +30,6 @@ end
 #TODO: turn ReturnEnv into mutablestringdict (less of an issue now)
 #TODO: get type-checker hooked in
 #TODO: handle things besides 'is'
-#TODO: traverse desugared AST
-#TODO: add tests in the tests area
 
 
 data TGuess:
@@ -72,8 +71,10 @@ fun extract-name(n :: A.Name) -> Option<String>:
   doc:```
       Gets a string representation of a `Name`
       ```
+#print(n.key())
   cases (A.Name) n:
     | s-name(loc, s) => some(s)
+    | s-atom(base, s) => some(print(base))
     | else           => none
   end
 end
@@ -238,13 +239,13 @@ check-inferer = lam(sd :: VariantEnv):
       end
     end
 
-    fun t-bind(elist :: List<A.Expr>) -> ReturnEnv:
+    fun t-bind(elist :: List<A.Expr>, acc :: ReturnEnv) -> ReturnEnv:
       doc:```
           Generates a list of guesses (potential types) for functions in the check block
           ```
       cases (List<A.Expr>) elist:
-        | empty => empty
-        | link(f, r) => recur = lam(): t-bind(r) end
+        | empty => acc
+        | link(f, r) => recur = lam(): t-bind(r, acc) end
          cases (A.Expr) f:
            | s-check-test(loc, op, refinement, left, right) => #TODO: only assuming op-is
              l-fun = get-fun(left)
@@ -260,18 +261,28 @@ check-inferer = lam(sd :: VariantEnv):
              end
 
            # TODO: do we care about annotation on `name`
-           | s-let(loc, binding, value, _) =>
-             cases (Option) t-infer(value):
-               | none => recur()
-               | some(n) =>
-                   self.setEnv(link(id-info(extract-name(binding.id).value, n), self.getEnv()))
-                   recur()
-             end
+          | s-let-expr(loc, _, _) => accumulate-bindings(f, recur())
           | else => recur()
          end
       end
     end
-    self.set-retenv(t-bind(body.stmts) + self.ret-env())
+
+    fun accumulate-bindings(exp :: A.Expr, acc :: ReturnEnv) -> ReturnEnv:
+        cases (A.Expr) exp:
+          | s-let-expr(loc, binds, bod) =>
+            self.setEnv(binds.foldr(lam(b, shadow acc):
+                 cases (Option) t-infer(b.value):
+                   | none => acc
+                   | some(n) => link(id-info(extract-name(b.b.id).value, n), acc)
+                 end
+             end, self.getEnv()))
+            accumulate-bindings(bod, acc)
+          | s-block(loc, stmts) => t-bind(stmts, acc)
+          | else => t-bind([list: exp], acc)
+        end
+    end
+
+    self.set-retenv(accumulate-bindings(body, self.ret-env()))
     A.s-check(l, _name, body.visit(self), keyword-check)
   end,
   setEnv(self, new-env :: TEnv):
@@ -288,12 +299,19 @@ fun check-infer(ast :: A.Program) -> ReturnEnv:
       Performs type inference of the ast's checks, and returns the types inferred
       in the form of a ReturnEnv.
       ```
-  variant-dict = datatype-infer(RS.desugar-scope(ast, C.minimal-builtins))
+  variant-dict = datatype-infer(ast)
   checker = check-inferer(variant-dict)
   ast.visit(checker)
   checker.ret-env()
 end
 
+fun check-infer-desugar(ast :: A.Program) -> ReturnEnv:
+  r-scope = D.desugar(RS.resolve-names(RS.desugar-scope(ast, C.minimal-builtins), C.minimal-builtins).ast, C.minimal-builtins)
+  variants = datatype-infer(r-scope)
+  checker = check-inferer(variants)
+  r-scope.visit(checker)
+  checker.ret-env()
+end
 
 #conveys use, and also criminal connotation
 type Bounty = (InferredTGuess -> InferredTGuess)
@@ -390,7 +408,7 @@ check:
     add1(3) is 5
   end
   ```
-  one-check-res = check-infer(PP.surface-parse(one-check, "test"))
+  one-check-res = check-infer-desugar(PP.surface-parse(one-check, "test"))
   one-check-res satisfies has-type(_, "add1", f-guess([list: some(TS.t-number)], some(TS.t-number)))
 
 
@@ -398,8 +416,17 @@ check:
 fun add1(x):
   x + 1
 end
+fun id(x): x end
 fun n(b):
   not(b)
+end
+fun p(s):
+  "hi"
+end
+fun q(b):  if b: "hi" else: "hello" end end
+
+fun add2(s, n):
+  "hithere"
 end
 
 check "Hi there!":
@@ -414,7 +441,7 @@ check "Hi there!":
 end
   ```
 
-  multiple-funs-res = check-infer(PP.surface-parse(multiple-functions-ids, "test"))
+  multiple-funs-res = check-infer-desugar(PP.surface-parse(multiple-functions-ids, "test"))
   multiple-funs-res satisfies has-type(_, "add1", f-guess([list: some(TS.t-number)], some(TS.t-number)))
   multiple-funs-res satisfies has-type(_, "id", f-guess([list: some(TS.t-string)], some(TS.t-string)))
   multiple-funs-res satisfies has-type(_, "n", f-guess([list: some(TS.t-boolean)], some(TS.t-boolean)))
@@ -456,36 +483,68 @@ end
       print(id + "->" )
       print(dict.get-now(id))
     end)
-  datatype-program2 = ```
-data Foo:
-  | foo
-  | bar(x,y)
 end
 
-fun foobar(f):
-  if is-string(f):
-    foo
-  else:
-    cases (Foo) f:
-      | foo => bar(none, none)
-      | bar(_,_) => foo
-     end
-  end
-end
-
-
-check "ohhh goodness":
-  baz = foo
-  foobar(foo) is bar(none, none)
-  foobar(bar(none, none)) is baz
-  foobar("hi") is foo
-end
-  ```
-prog2 = check-infer(PP.surface-parse(datatype-program2, "test"))
-# desugar data exprs
-dict3 = process(prog2)
-dict3.keys-now().to-list().map(lam(id):
-    print(id + "->" )
-    print(dict3.get-now(id))
-  end)
-end
+#check "use-defined types":
+#
+#  datatype-program = ```
+#data Foo:
+#  | foo
+#  | bar(x,y)
+#end
+#
+#fun foobar(f):
+#  cases (Foo) f:
+#    | foo => bar(none, none)
+#    | bar(_,_) => foo
+#   end
+#end
+#
+#
+#check "ohhh goodness":
+#  baz = foo
+#  foobar(foo) is bar(none, none)
+#  foobar(bar(none, none)) is baz
+#end
+#  ```
+#
+#  prog = PP.surface-parse(datatype-program, "test")
+#  # desugar data exprs
+#  dict = process(check-infer-desugar(prog))
+#  dict.keys-now().to-list().map(lam(id):
+#      print(id + "->" )
+#      print(dict.get-now(id))
+#    end)
+#  datatype-program2 = ```
+#data Foo:
+#  | foo
+#  | bar(x,y)
+#end
+#
+#fun foobar(f):
+#  if is-string(f):
+#    foo
+#  else:
+#    cases (Foo) f:
+#      | foo => bar(none, none)
+#      | bar(_,_) => foo
+#     end
+#  end
+#end
+#
+#
+#check "ohhh goodness":
+#  baz = foo
+#  foobar(foo) is bar(none, none)
+#  foobar(bar(none, none)) is baz
+#  foobar("hi") is foo
+#end
+#  ```
+#prog2 = check-infer-desugar(PP.surface-parse(datatype-program2, "test"))
+## desugar data exprs
+#dict3 = process(prog2)
+#dict3.keys-now().to-list().map(lam(id):
+#    print(id + "->" )
+#    print(dict3.get-now(id))
+#  end)
+#end

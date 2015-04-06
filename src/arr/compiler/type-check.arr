@@ -1081,18 +1081,23 @@ fun synthesis-binding(binding :: A.Bind, value :: A.Expr, recreate :: (A.Bind, A
   never-give-up-never-surrender = lam(o, f):
     cases (Option) o:
       | some(t) => f(t)
-      | none => synthesis(value, info)
+      | none => print("we have failed!!!")
+        synthesis(value, info)
     end
   end
 
   nguns = never-give-up-never-surrender
   for synth-bind(maybe-typ from to-type(binding.ann, info)):
     cases(Option<Type>) maybe-typ:
-      | none => cases (A.Name) binding.id:
-                  | s-name(loc, id) =>
+      | none =>
+        cases (A.Name) binding.id:
+                  | s-atom(id, serial) =>
                       nguns(info.inferred.get-now(id), lam(guess):
                            cases (TCS.InferredTGuess) guess:
                              | inf-id-guess(t) => nguns(extract-type(t, info), lam(shadow t):
+                                      print("yayyyy we found it")
+                                      print(t)
+                                      print(binding)
                                                     checking(value, binding.l, t, info)
                                                        .synth-bind(synthesis-result(_, binding.l, t))
                                                   end)
@@ -1100,21 +1105,27 @@ fun synthesis-binding(binding :: A.Bind, value :: A.Expr, recreate :: (A.Bind, A
                                nguns(args.foldr(lam(x, acc):
                                    CI.bind(acc, lam(ac):
                                      CI.bind(extract-type(x, info), lam(ty):
-                                       some(link(x, acc))
+                                       some(link(ty, ac))
                                      end)
                                    end)
                                  end, some(empty)), lam(t-list):
                                   nguns(extract-type(rt, info), lam(shadow rt):
                                       t = TS.t-arrow(t-list, rt)
+                                      print("yayyyy we found it")
+                                      print(t)
+                                      print(binding)
                                       checking(value, binding.l, t, info)
                                         .synth-bind(synthesis-result(_, binding.l, t))
                                   end)
                                end)
                            end
                       end)
-                  | else => synthesis(value, info)
+                  | else => print(binding)
+                            print(binding.id.key())
+                            synthesis(value, info)
                 end
       | some(t) =>
+        print("wut, found annotation")
         checking(value, binding.l, t, info)
           .synth-bind(synthesis-result(_, binding.l, t))
     end.bind(process-value)
@@ -1557,7 +1568,7 @@ fun type-check(program :: A.Program, compile-env :: C.CompileEnvironment) -> C.C
       info = TCS.empty-tc-info("default")
       shadow info = cases (TCS.TCInfo) info:
         | tc-info(typs, aliases, data-exprs,
-            branders, modules, mod-names, binds, modul, _, errors) =>
+            branders, modules, mod-names, binds, ref modul, _, errors) =>
            tc-info(typs, aliases, data-exprs, branders, modules,
                mod-names, binds, modul, CI.infer-types(program), errors)
       end
