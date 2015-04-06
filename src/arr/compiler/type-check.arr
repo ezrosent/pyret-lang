@@ -1081,8 +1081,7 @@ fun synthesis-binding(binding :: A.Bind, value :: A.Expr, recreate :: (A.Bind, A
   never-give-up-never-surrender = lam(o, f):
     cases (Option) o:
       | some(t) => f(t)
-      | none => print("we have failed!!!")
-        synthesis(value, info)
+      | none => synthesis(value, info)
     end
   end
 
@@ -1095,37 +1094,28 @@ fun synthesis-binding(binding :: A.Bind, value :: A.Expr, recreate :: (A.Bind, A
                       nguns(info.inferred.get-now(id), lam(guess):
                            cases (TCS.InferredTGuess) guess:
                              | inf-id-guess(t) => nguns(extract-type(t, info), lam(shadow t):
-                                      print("yayyyy we found it")
-                                      print(t)
-                                      print(binding)
                                                     checking(value, binding.l, t, info)
                                                        .synth-bind(synthesis-result(_, binding.l, t))
                                                   end)
                              | inf-f-guess(args, rt) =>
-                               nguns(args.foldr(lam(x, acc):
-                                   CI.bind(acc, lam(ac):
-                                     CI.bind(extract-type(x, info), lam(ty):
-                                       some(link(ty, ac))
-                                     end)
-                                   end)
-                                 end, some(empty)), lam(t-list):
-                                  nguns(extract-type(rt, info), lam(shadow rt):
-                                      t = TS.t-arrow(t-list, rt)
-                                      print("yayyyy we found it")
-                                      print(t)
-                                      print(binding)
-                                      checking(value, binding.l, t, info)
-                                        .synth-bind(synthesis-result(_, binding.l, t))
-                                  end)
+                               types = args.map(lam(arg):
+                                 cases (Option) extract-type(arg, info):
+                                   | none => TS.t-bot
+                                   | some(n) => n
+                                 end
                                end)
+                               rtyp = cases (Option) extract-type(rt, info):
+                                 | none => TS.t-top
+                                 | some(n) => n
+                               end
+                              t = TS.t-arrow(types, rtyp)
+                              checking(value, binding.l, t, info)
+                                .synth-bind(synthesis-result(_, binding.l, t))
                            end
                       end)
-                  | else => print(binding)
-                            print(binding.id.key())
-                            synthesis(value, info)
+                  | else => synthesis(value, info)
                 end
       | some(t) =>
-        print("wut, found annotation")
         checking(value, binding.l, t, info)
           .synth-bind(synthesis-result(_, binding.l, t))
     end.bind(process-value)

@@ -28,8 +28,6 @@ end
 
 #TODO: Add inference for identifiers
 #TODO: turn ReturnEnv into mutablestringdict (less of an issue now)
-#TODO: get type-checker hooked in
-#TODO: handle things besides 'is'
 
 
 data TGuess:
@@ -74,7 +72,7 @@ fun extract-name(n :: A.Name) -> Option<String>:
 #print(n.key())
   cases (A.Name) n:
     | s-name(loc, s) => some(s)
-    | s-atom(base, s) => some(print(base))
+    | s-atom(base, s) => some(base)
     | else           => none
   end
 end
@@ -167,7 +165,6 @@ fun datatype-infer(ast :: A.Program) -> VariantEnv:
     end
 
   })
-  print(ret.keys-now().to-list())
   ret
 
 end
@@ -252,9 +249,9 @@ check-inferer = lam(sd :: VariantEnv):
              r-fun = bind(right, lam(shadow right): get-fun(right);)
              ask:
                | is-none(l-fun) and is-none(r-fun) then: recur()
-               | is-none(l-fun) and is-some(r-fun) then: infer-binding(r-fun.value, t-infer(left), recur)
-               | is-some(l-fun) and is-none(r-fun) then: infer-binding(l-fun.value, bind(right,
-                     lam(shadow right): t-infer(right);), recur)
+               | is-none(l-fun) and is-some(r-fun) then: infer-binding(r-fun.value, if A.is-s-op-is(op): t-infer(left) else: none end, recur)
+               | is-some(l-fun) and is-none(r-fun) then: infer-binding(l-fun.value, if A.is-s-op-is(op): bind(right,
+                     lam(shadow right): t-infer(right);) else: none end, recur)
                | is-some(l-fun) and is-some(r-fun) then: l-funs = infer-binding(l-fun.value, none, recur)
                                                          infer-binding(r-fun.value, none, lam(): l-funs;)
                | otherwise: raise("[check-infer/t-bind] impossible state")
@@ -316,6 +313,10 @@ end
 #conveys use, and also criminal connotation
 type Bounty = (InferredTGuess -> InferredTGuess)
 
+fun fresh-t-var() -> TCS.InferredType:
+  TCS.typp(TS.t-var(A.s-atom(G.make-name("infer"), 1)))
+end
+
 fun process(re :: ReturnEnv) -> TypeMap:
   res = [SD.mutable-string-dict:]
 
@@ -370,10 +371,10 @@ fun process(re :: ReturnEnv) -> TypeMap:
               cases (InferredTGuess) acc:
                 | inf-f-guess(args, rt) =>
                     inf-f-guess(map2_n(lam(i, arg1, arg2):
-                          merge(arg1, arg2, lam(fg): inf-f-guess(fg.args.set(i, none), fg.rt);)
+                          merge(arg1, arg2, lam(fg): inf-f-guess(fg.args.set(i, some(fresh-t-var())), fg.rt);)
                         end, 0, args, guess.args),
-                      merge(rt, guess.rt, lam(fg): inf-f-guess(fg.args, none);))
-                | inf-id-guess(t)       => inf-id-guess(merge(t, guess.t, lam(x): inf-id-guess(none);))
+                      merge(rt, guess.rt, lam(fg): inf-f-guess(fg.args, some(fresh-t-var()));))
+                | inf-id-guess(t)       => inf-id-guess(merge(t, guess.t, lam(x): inf-id-guess(some(fresh-t-var()));))
               end
             else:
               raise("something doesn't conform")
