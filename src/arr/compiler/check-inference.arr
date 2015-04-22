@@ -28,6 +28,7 @@ end
 
 #TODO: Add inference for identifiers
 #TODO: turn ReturnEnv into mutablestringdict (less of an issue now)
+#TODO: need nice error messages indicating that we inferred a given type
 
 
 data TGuess:
@@ -176,8 +177,8 @@ check-inferer = lam(sd :: VariantEnv):
     doc:```
         Infers best guess at the type of an expression given `env`
         ```
-    cases (A.Expr) exp:
-      | s-id(loc, id) => cases (Option<TS.Type>) bind(extract-name(id), sd.get-now(_)):
+    fun id-fun(id):
+        cases (Option<TS.Type>) bind(extract-name(id), sd.get-now(_)):
         | none => bind(extract-name(id), lam(s :: String):
                     bind(env.find(lam(t-i):
                       t-i.name == s
@@ -185,6 +186,10 @@ check-inferer = lam(sd :: VariantEnv):
                   end)
         | some(n) => some(n)
        end
+    end
+    cases (A.Expr) exp:
+      | s-id(loc, id) => id-fun(id)
+      | s-id-letrec(loc, id, _) => id-fun(id)
       | s-str(loc, _)  => some(TS.t-string)
       | s-num(loc, _)  => some(TS.t-number)
       | s-bool(loc, _) => some(TS.t-boolean)
@@ -213,13 +218,15 @@ check-inferer = lam(sd :: VariantEnv):
 
 
   A.default-map-visitor.{
+
   ret-env(self):
     _retenv
   end,
+
   set-retenv(self, re):
     _retenv := re
+  end,
 
-    end,
   s-check(self, l, _name, body, keyword-check):
     shadow t-infer = t-infer(self.getEnv(), _)
 
