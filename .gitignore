@@ -5,7 +5,13 @@
 *.err
 *.bak
 
+# benchmark
+tools/benchmark/TODO
+tools/benchmark/sandbox*
+tools/benchmark/nodelint*
+
 # docs
+docs/written/compiled
 docs/written/*.html
 docs/written/*/compiled
 docs/written/scribble*
@@ -26,6 +32,7 @@ deps/closure-compiler
 node_modules/
 *#
 pyret.plt
+tests/pyret/*.arr.js
 tests/pyret/tests/*.arr.js
 tests/pyret/regression/*.arr.js
 tests/pyret/bootstrap-tests/*.arr.js
