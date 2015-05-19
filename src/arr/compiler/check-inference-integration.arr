@@ -61,16 +61,6 @@ end
 ```
   T.type-check(str-to-ast(mulmlul), libs) satisfies C.is-ok
 
-#  polymorphism = ```
-#fun id(x): x end
-#check "look over there":
-#  id(1) is 1
-#  id("hi") is "hi"
-#  id("bool") is "bool"
-#end
-#```
-#  print(T.type-check(str-to-ast(polymorphism),libs)) satisfies C.is-ok
-
     datatype-program = ```
 data Foo:
   | foo
@@ -93,7 +83,6 @@ check "ohhh goodness":
 end
   ```
    T.type-check(str-to-ast(datatype-program), libs) satisfies C.is-ok
-
   datatype-program-sparse= ```
 data Foo:
   | foo
@@ -113,28 +102,6 @@ end
 ```
   parse1=str-to-ast(datatype-program-sparse)
    T.type-check(parse1, libs) satisfies C.is-ok
-
-  datatype-program-sparse-where= ```
-data Foo:
-  | foo
-  | bar(x,y)
-end
-
-fun foobar(f):
-  cases (Foo) f:
-    | foo => bar(4, 4)
-    | bar(_,_) => foo
-   end
-where:
-  foobar(foo) is foo
-  foobar(foo) is foo
-end
-```
-#   desugar1 = RS.desugar-scope(PP.surface-parse(datatype-program-sparse, "test"), libs)
-#   desugar2 = RS.desugar-scope(PP.surface-parse(datatype-program-sparse-where, "test"), libs)
-# parse2 = str-to-ast(datatype-program-sparse-where)
-#   print(desugar1)
-#      print(desugar2)
    fancy-program=```
 data Animal:
   | boa(name :: String, length :: Number)
@@ -189,51 +156,6 @@ check:
 end
  ```
   T.type-check(str-to-ast(fancy-program), libs) satisfies C.is-ok
-
-  stream-program = ```
-
-data Stream<T>:
-  | lz-link(h :: T, t :: ( -> Stream<T>))
-end
-
-rec ones = lz-link(1, lam(): ones end)
-fun nats-from(n :: Number): lz-link(n, lam(): nats-from(n + 1) end) end
-rec nats = nats-from(0)
-
-fun lz-first<T>(s :: Stream<T>) -> T: s.h end
-fun lz-rest<T>(s :: Stream<T>) -> Stream<T>: s.t() end
-
-fun take<T>(n, s :: Stream<T>) -> List<T>:
-  if n == 0:
-    empty
-  else:
-    link(lz-first(s), take(n - 1, lz-rest(s)))
-  end
-end
-
-fun lz-map2<A,B>(f :: (A, A -> B),
-                  s1 :: Stream<A>, s2 :: Stream<A>)
-    -> Stream<B>:
-  lz-link(f(lz-first(s1), lz-first(s2)),
-    lam(): lz-map2(f, lz-rest(s1), lz-rest(s2)) end)
-end
-
-fun lz-map(f, s): lz-link(f(lz-first(s)), lam(): lz-map(f, lz-rest(s)) end) end
-
-check:
-  take(3, ones) is [list: 1, 1, 1]
-  take(10, nats) is range(0, 10)
-  take(10, nats-from(1)) is map((_ + 1), range(0, 10))
-end
-  ```
-#TODO: type of nats-from isn't inferred since it's in another one!
-#TODO: Lists. We're not recognizing them. Imports? Data types? Exprs?
-#TODO: Lists and Options are parameterized types. What even are those!
-#TODO: inferring data field types from tests
-#TODO: It didn't like fold and empty :(
-#TODO: We just added s-id-letrec. Do we need to care about s-id-var?
-#T.type-check(str-to-ast(stream-program), libs) satisfies C.is-ok
-
   bst-program = ```
   data BT:
   | leaf
@@ -329,7 +251,6 @@ fun is-in(e, s):
       end
   end
 end
-#
 fun insert(e, s):
   cases (BT) s:
     | leaf => node(e, leaf, leaf)
@@ -343,8 +264,6 @@ fun insert(e, s):
       end
   end
 end
-#
-
 
 fun size(s):
   cases (BST) s:
@@ -354,29 +273,17 @@ fun size(s):
   end
 end
 
-#
 check:
-  s09 =  node(1, leaf,
-    node(2, leaf,
-      node(3, leaf,
-        node(4, leaf, leaf))))
-#
-#insert-many(range(0, 10), mt-set)
-#
+  s09 =  node(1, leaf, node(2, leaf, node(3, leaf, node(4, leaf, leaf))))
   is-in-bt(5, s09) is true
   is-in-bt(11, s09) is false
-#
   is-in(5, s09) is true
   is-in(11, s09) is false
   size(insert(5, insert(5, mt-set))) is 1
   size(leaf) is 1
 insert(4, s09) is node(4, leaf, leaf)
  insert(4, leaf) is node(4, leaf, leaf)
-  insert(4, insert(3, insert(2, insert(1, mt-set)))) is
-  node(1, leaf,
-    node(2, leaf,
-      node(3, leaf,
-        node(4, leaf, leaf))))
+  insert(4, insert(3, insert(2, insert(1, mt-set)))) is node(1, leaf, node(2, leaf, node(3, leaf, node(4, leaf, leaf))))
 
   insert(5, insert(5, mt-set)) satisfies is-a-bst
   insert(4, insert(3, insert(2, insert(1, mt-set)))) satisfies is-a-bst
@@ -386,3 +293,83 @@ end
   T.type-check(str-to-ast(bst-program),libs) satisfies C.is-ok
 end
 
+#end
+
+#
+##  polymorphism = ```
+##fun id(x): x end
+##check "look over there":
+##  id(1) is 1
+##  id("hi") is "hi"
+##  id("bool") is "bool"
+##end
+##```
+##  print(T.type-check(str-to-ast(polymorphism),libs)) satisfies C.is-ok
+#
+#
+##
+#  datatype-program-sparse-where= ```
+#data Foo:
+#  | foo
+#  | bar(x,y)
+#end
+#
+#fun foobar(f):
+#  cases (Foo) f:
+#    | foo => bar(4, 4)
+#    | bar(_,_) => foo
+#   end
+#where:
+#  foobar(foo) is foo
+#  foobar(foo) is foo
+#end
+#```
+##   desugar1 = RS.desugar-scope(PP.surface-parse(datatype-program-sparse, "test"), libs)
+##   desugar2 = RS.desugar-scope(PP.surface-parse(datatype-program-sparse-where, "test"), libs)
+## parse2 = str-to-ast(datatype-program-sparse-where)
+##   print(desugar1)
+##      print(desugar2)
+#  stream-program = ```
+#
+#data Stream<T>:
+#  | lz-link(h :: T, t :: ( -> Stream<T>))
+#end
+#
+#rec ones = lz-link(1, lam(): ones end)
+#fun nats-from(n :: Number): lz-link(n, lam(): nats-from(n + 1) end) end
+#rec nats = nats-from(0)
+#
+#fun lz-first<T>(s :: Stream<T>) -> T: s.h end
+#fun lz-rest<T>(s :: Stream<T>) -> Stream<T>: s.t() end
+#
+#fun take<T>(n, s :: Stream<T>) -> List<T>:
+#  if n == 0:
+#    empty
+#  else:
+#    link(lz-first(s), take(n - 1, lz-rest(s)))
+#  end
+#end
+#
+#fun lz-map2<A,B>(f :: (A, A -> B),
+#                  s1 :: Stream<A>, s2 :: Stream<A>)
+#    -> Stream<B>:
+#  lz-link(f(lz-first(s1), lz-first(s2)),
+#    lam(): lz-map2(f, lz-rest(s1), lz-rest(s2)) end)
+#end
+#
+#fun lz-map(f, s): lz-link(f(lz-first(s)), lam(): lz-map(f, lz-rest(s)) end) end
+#
+#check:
+#  take(3, ones) is [list: 1, 1, 1]
+#  take(10, nats) is range(0, 10)
+#  take(10, nats-from(1)) is map((_ + 1), range(0, 10))
+#end
+#  ```
+##TODO: type of nats-from isn't inferred since it's in another one!
+##TODO: Lists. We're not recognizing them. Imports? Data types? Exprs?
+##TODO: Lists and Options are parameterized types. What even are those!
+##TODO: inferring data field types from tests
+##TODO: It didn't like fold and empty :(
+##TODO: We just added s-id-letrec. Do we need to care about s-id-var?
+##T.type-check(str-to-ast(stream-program), libs) satisfies C.is-ok
+#
