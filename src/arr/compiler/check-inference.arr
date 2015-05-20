@@ -353,7 +353,7 @@ fun process(re :: ReturnEnv) -> TypeMap:
       var hit-list = empty
       fun merge(o1 :: Option<InferredType>, o2 :: Option<Type>,
                              bounty :: Bounty) -> Option<InferredType>:
-        ask:
+        osk:
          | is-some(o1) and is-some(o2) then:
            # oh dear
            if not(o1 == o2.and-then(convert-type)):
